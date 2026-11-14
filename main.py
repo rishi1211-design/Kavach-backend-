@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 class UserRequest(BaseModel):
     prompt: str
@@ -22,12 +22,12 @@ class UserRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"status": "Kavach AGI Brain is Online 🟢", "version": "1.0"}
+    return {"status": "Kavach AGI Brain (Groq Engine) is Online 🟢", "version": "1.0"}
 
 @app.post("/api/think")
 def think(request: UserRequest):
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key missing on server!")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Groq API Key missing on server!")
         
     try:
         system_instruction = "You are Kavach, an advanced AGI assistant."
@@ -36,23 +36,30 @@ def think(request: UserRequest):
         elif "Code" in request.mode:
             system_instruction = "You are an elite software architect and coder."
             
-        full_prompt = f"{system_instruction}\n\nUser Query: {request.prompt}"
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama3-8b-8192", 
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": request.prompt}
+            ]
+        }
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_API_KEY}"
-        payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
-        
-        res = requests.post(url, json=payload)
+        res = requests.post(url, headers=headers, json=payload)
         
         if res.status_code == 200:
-            ai_thought = res.json()['candidates'][0]['content']['parts'][0]['text']
+            ai_thought = res.json()['choices'][0]['message']['content']
             return {
                 "status": "success",
                 "mode_used": request.mode,
                 "response": ai_thought
             }
         else:
-            raise HTTPException(status_code=500, detail=f"AI Provider Error: {res.text}")
+            raise HTTPException(status_code=500, detail=f"Groq API Error: {res.text}")
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-      
