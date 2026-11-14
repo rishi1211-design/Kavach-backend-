@@ -10,7 +10,7 @@ app = FastAPI(title="Kavach AGI Brain", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,51 +38,66 @@ class VoiceRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"status": "Kavach AGI Brain (Groq + Memory + Voice) is Online 🟢", "version": "2.0"}
+    return {"status": "Kavach AGI Brain (Groq + Memory + Voice) is Online 🚀", "version": "2.0"}
 
-# --- TEXT & MEMORY API ---
+# --- TEXT & MEMORY API (WITH PLAN B FALLBACK) ---
 @app.post("/api/think")
 def think(request: UserRequest):
     if not GROQ_API_KEY:
-        raise HTTPException(status_code=500, detail="Groq API Key missing!")
-        
+        raise HTTPException(status_code=500, detail="Groq API Key missing in environment")
+
     try:
         # User ka message memory me save karna
         if supabase:
             try:
-                supabase.table("kavach_memory").insert({"user_id": request.user_id, "message": request.prompt, "role": "user"}).execute()
+                supabase.table("kavach_memory").insert({"user_id": request.user_id, "prompt": request.prompt, "role": "user"}).execute()
             except:
-                pass # Agar database me table nahi bani toh app crash nahi hogi
-                
+                pass 
+
         system_instruction = "You are Kavach, an advanced AGI assistant."
-        
-        # Groq Engine Fast Response
-        url = "https://api.groq.com/openai/v1/chat/completions"
+        ai_thought = ""
+
+        # --- PLAN A: Groq Engine ---
+        groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "model": "llama3-8b-8192", 
+            "model": "llama3-8b-8192",
             "messages": [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": request.prompt}
             ]
         }
-        
-        res = requests.post(url, headers=headers, json=payload)
-        
-        if res.status_code == 200:
-            ai_thought = res.json()['choices'][0]['message']['content']
-            
-            # AI ka jawaab memory me save karna
-            if supabase:
-                try:
-                    supabase.table("kavach_memory").insert({"user_id": request.user_id, "message": ai_thought, "role": "kavach"}).execute()
-                except:
-                    pass
-                
-            return {"status": "success", "mode_used": request.mode, "response": ai_thought}
+
+        groq_res = requests.post(groq_url, headers=headers, json=payload)
+
+        if groq_res.status_code == 200:
+            ai_thought = groq_res.json()['choices'][0]['message']['content']
         else:
-            raise HTTPException(status_code=500, detail=f"Groq API Error: {res.text}")
+            # --- PLAN B: Fallback to Gemini Engine (Agar Groq limit cross ho ya fail ho) ---
+            if not GEMINI_API_KEY:
+                raise HTTPException(status_code=500, detail="Groq failed and Gemini API Key is missing")
             
+            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            gemini_payload = {
+                "contents": [{"parts": [{"text": f"{system_instruction}\n\nUser: {request.prompt}"}]}]
+            }
+            
+            gemini_res = requests.post(gemini_url, json=gemini_payload)
+            
+            if gemini_res.status_code == 200:
+                ai_thought = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
+            else:
+                raise HTTPException(status_code=500, detail="Dono API fail ho gayi.")
+
+        # AI ka jawaab memory me save karna
+        if supabase:
+            try:
+                supabase.table("kavach_memory").insert({"user_id": request.user_id, "prompt": ai_thought, "role": "assistant"}).execute()
+            except:
+                pass
+
+        return {"status": "success", "mode_used": request.mode, "response": ai_thought}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -90,33 +105,32 @@ def think(request: UserRequest):
 @app.post("/api/voice")
 def generate_voice(request: VoiceRequest):
     if not ELEVENLABS_API_KEY:
-        raise HTTPException(status_code=500, detail="ElevenLabs Key missing!")
-        
+        raise HTTPException(status_code=500, detail="ElevenLabs Key missing")
+    
     try:
         # Adam Voice ID (Best for Story/Horror/Deep Voice)
-        voice_id = "pNInz6obpgDQGcFmaJcg" 
+        voice_id = "pNInz6obpgDQGcFmaJcg"
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        
+
         headers = {
             "Accept": "audio/mpeg",
             "Content-Type": "application/json",
             "xi-api-key": ELEVENLABS_API_KEY
         }
-        
+
         payload = {
             "text": request.text,
             "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.7}
         }
-        
+
         res = requests.post(url, json=payload, headers=headers)
-        
+
         if res.status_code == 200:
-            # Seedha audio file return karega jo app me play hogi
             return Response(content=res.content, media_type="audio/mpeg")
         else:
-            raise HTTPException(status_code=500, detail=f"ElevenLabs Error: {res.text}")
-            
+            raise HTTPException(status_code=500, detail="ElevenLabs Error")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
