@@ -16,14 +16,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. Saari API Keys Render Server se nikalna
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 
-# 2. Supabase (Memory) Database Connection
 supabase: Client = None
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -38,16 +36,14 @@ class VoiceRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"status": "Kavach AGI Brain (Groq + Memory + Voice) is Online 🚀", "version": "2.0"}
+    return {"status": "Kavach AGI Brain is Online 🚀", "version": "2.0"}
 
-# --- TEXT & MEMORY API (WITH PLAN B FALLBACK) ---
 @app.post("/api/think")
 def think(request: UserRequest):
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="Groq API Key missing in environment")
 
     try:
-        # User ka message memory me save karna
         if supabase:
             try:
                 supabase.table("kavach_memory").insert({"user_id": request.user_id, "prompt": request.prompt, "role": "user"}).execute()
@@ -73,9 +69,9 @@ def think(request: UserRequest):
         if groq_res.status_code == 200:
             ai_thought = groq_res.json()['choices'][0]['message']['content']
         else:
-            # --- PLAN B: Fallback to Gemini Engine (Agar Groq limit cross ho ya fail ho) ---
+            # --- PLAN B: Fallback to Gemini ---
             if not GEMINI_API_KEY:
-                raise HTTPException(status_code=500, detail="Groq failed and Gemini API Key is missing")
+                raise HTTPException(status_code=500, detail=f"Groq Error: {groq_res.text} | Gemini Key is missing")
             
             gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             gemini_payload = {
@@ -87,9 +83,10 @@ def think(request: UserRequest):
             if gemini_res.status_code == 200:
                 ai_thought = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
             else:
-                raise HTTPException(status_code=500, detail="Dono API fail ho gayi.")
+                # YE LINE BATAEGI ASLI ERROR KYA HAI
+                error_msg = f"Groq Error: {groq_res.text} || Gemini Error: {gemini_res.text}"
+                raise HTTPException(status_code=500, detail=error_msg)
 
-        # AI ka jawaab memory me save karna
         if supabase:
             try:
                 supabase.table("kavach_memory").insert({"user_id": request.user_id, "prompt": ai_thought, "role": "assistant"}).execute()
@@ -101,14 +98,12 @@ def think(request: UserRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- VOICE GENERATION API ---
 @app.post("/api/voice")
 def generate_voice(request: VoiceRequest):
     if not ELEVENLABS_API_KEY:
         raise HTTPException(status_code=500, detail="ElevenLabs Key missing")
     
     try:
-        # Adam Voice ID (Best for Story/Horror/Deep Voice)
         voice_id = "pNInz6obpgDQGcFmaJcg"
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
