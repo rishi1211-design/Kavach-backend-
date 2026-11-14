@@ -53,11 +53,10 @@ def think(request: UserRequest):
         system_instruction = "You are Kavach, an advanced AGI assistant."
         ai_thought = ""
 
-        # --- PLAN A: Groq Engine ---
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         payload = {
-            "model": "llama3-8b-8192",
+            "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": request.prompt}
@@ -69,11 +68,10 @@ def think(request: UserRequest):
         if groq_res.status_code == 200:
             ai_thought = groq_res.json()['choices'][0]['message']['content']
         else:
-            # --- PLAN B: Fallback to Gemini ---
             if not GEMINI_API_KEY:
                 raise HTTPException(status_code=500, detail=f"Groq Error: {groq_res.text} | Gemini Key is missing")
             
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_API_KEY}"
             gemini_payload = {
                 "contents": [{"parts": [{"text": f"{system_instruction}\n\nUser: {request.prompt}"}]}]
             }
@@ -83,7 +81,6 @@ def think(request: UserRequest):
             if gemini_res.status_code == 200:
                 ai_thought = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
             else:
-                # YE LINE BATAEGI ASLI ERROR KYA HAI
                 error_msg = f"Groq Error: {groq_res.text} || Gemini Error: {gemini_res.text}"
                 raise HTTPException(status_code=500, detail=error_msg)
 
